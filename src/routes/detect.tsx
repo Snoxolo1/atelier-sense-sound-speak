@@ -41,7 +41,7 @@ function getModel() {
   })().catch((e) => { modelPromise = null; throw e; });
   return modelPromise;
 }
-function iou(a: number[], b: number[]) {
+function iou(a: readonly [number, number, number, number], b: readonly [number, number, number, number]) {
   const x1 = Math.max(a[0], b[0]), y1 = Math.max(a[1], b[1]);
   const x2 = Math.min(a[0] + a[2], b[0] + b[2]), y2 = Math.min(a[1] + a[3], b[1] + b[3]);
   const inter = Math.max(0, x2 - x1) * Math.max(0, y2 - y1);
@@ -140,7 +140,7 @@ function DetectPage() {
         const s = iou(t.box, p.bbox);
         if (s > bestScore) { bestScore = s; best = i; }
       });
-      if (best >= 0) { t.box = preds[best].bbox; t.miss = 0; used.add(best); } else t.miss++;
+      if (best >= 0) { t.box = preds[best]!.bbox; t.miss = 0; used.add(best); } else t.miss++;
     }
     preds.forEach((p, i) => { if (!used.has(i)) tracks.current.push({ id: nextId.current++, box: p.bbox, cls: p.class, miss: 0 }); });
     tracks.current = tracks.current.filter((t) => t.miss < 15);
