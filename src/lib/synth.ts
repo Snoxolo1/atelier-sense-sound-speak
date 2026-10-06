@@ -67,7 +67,7 @@ export async function renderLoop(opts: { genre: Genre; mood: Mood; bpm: number; 
     s.start(t);
     s.stop(t + d);
   };
-  const deg = (d: number, oct = 0) => root + scale[((d % 7) + 7) % 7] + 12 * (Math.floor(d / 7) + oct);
+  const deg = (d: number, oct = 0) => root + scale[((d % 7) + 7) % 7]! + 12 * (Math.floor(d / 7) + oct);
 
   const kickSteps: Record<Genre, number[]> = {
     amapiano: [0, 4, 8, 12], rnb: [0, 7, 10], jazz: [], afrobeat: [0, 6, 10], lofi: [0, 7, 10],
@@ -80,7 +80,7 @@ export async function renderLoop(opts: { genre: Genre; mood: Mood; bpm: number; 
 
   for (let b = 0; b * bar < opts.seconds; b++) {
     const t0 = b * bar;
-    const chordDeg = prog[b % prog.length];
+    const chordDeg = prog[b % prog.length]!;
     for (let s = 0; s < 16; s++) {
       const t = t0 + s * step16 + (s % 2 ? swing * step16 : 0);
       if (t >= opts.seconds) break;
@@ -124,7 +124,7 @@ export function toWav(buf: AudioBuffer): Blob {
   const data = [...Array(ch)].map((_, i) => buf.getChannelData(i));
   let o = 44;
   for (let i = 0; i < len; i++) for (let c = 0; c < ch; c++) {
-    const v = Math.max(-1, Math.min(1, data[c][i]));
+    const v = Math.max(-1, Math.min(1, data[c]![i]!));
     out.setInt16(o, v * 0x7fff, true);
     o += 2;
   }
