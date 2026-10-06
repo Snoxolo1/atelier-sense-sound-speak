@@ -74,7 +74,7 @@ function MusicPage() {
           title="Music Generation"
           text="Real AI music generation needs a paid model and a server, which this browser-only app doesn't have. Instead, a built-in synthesizer composes an original instrumental loop from your choices."
         />
-        <p className="note mb-6 max-w-3xl !bg-secondary !text-foreground">
+        <p className="mb-6 max-w-3xl rounded-lg border-l-4 border-gold bg-secondary px-3 py-2 text-sm text-foreground">
           <span className="badge-demo mr-2">Demo mode</span>
           Loops are made by simple rule-based sound synthesis — not by AI. Your prompt only varies the randomness; it isn't interpreted.
         </p>

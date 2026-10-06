@@ -97,10 +97,10 @@
   .btn {
     @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-50;
   }
-  .btn-primary { @apply btn bg-primary text-primary-foreground hover:brightness-110; }
-  .btn-gold { @apply btn bg-gold text-gold-foreground hover:brightness-105; }
-  .btn-ghost { @apply btn border border-surface-foreground/20 text-surface-foreground hover:bg-surface-muted; }
-  .btn-ghost-dark { @apply btn border border-border text-foreground hover:bg-secondary; }
+  .btn-primary { @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 bg-primary text-primary-foreground hover:brightness-110; }
+  .btn-gold { @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 bg-gold text-gold-foreground hover:brightness-105; }
+  .btn-ghost { @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 border border-surface-foreground/20 text-surface-foreground hover:bg-surface-muted; }
+  .btn-ghost-dark { @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 border border-border text-foreground hover:bg-secondary; }
   .note { @apply rounded-lg border-l-4 border-gold bg-surface-muted px-3 py-2 text-sm text-surface-foreground/85; }
   .note-error { @apply rounded-lg border-l-4 border-destructive bg-destructive/10 px-3 py-2 text-sm text-surface-foreground; }
   .badge-demo { @apply inline-flex items-center rounded-full bg-gold px-2.5 py-0.5 text-xs font-bold uppercase tracking-wide text-gold-foreground; }
