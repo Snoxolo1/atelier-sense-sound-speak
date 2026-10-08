@@ -1,15 +1,15 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
-import { Camera, Loader2, Pause, Play, Square, Upload } from "lucide-react";
-import { SiteHeader, PageIntro } from "@/components/SiteHeader";
+import { Camera, Eye, Loader2, Pause, Play, ScanLine, Square, Upload, Volume2 } from "lucide-react";
+import { AiDisclaimer, SiteHeader, PageIntro } from "@/components/SiteHeader";
 
 export const Route = createFileRoute("/detect")({
   head: () => ({
     meta: [
-      { title: "Object Detection & Tracking — Atelier AI" },
-      { name: "description", content: "Detect and track objects in a video or webcam feed, processed on your device." },
-      { property: "og:title", content: "Object Detection & Tracking — Atelier AI" },
-      { property: "og:description", content: "On-device object detection with labels and tracking IDs." },
+      { title: "Vision Intelligence — Beat Brains" },
+      { name: "description", content: "Analyse a camera or video with real-time object detection, tracking, counts and spoken scene summaries." },
+      { property: "og:title", content: "Vision Intelligence — Beat Brains" },
+      { property: "og:description", content: "On-device vision analysis with labels, confidence, tracking and spoken descriptions." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
     ],
@@ -19,7 +19,7 @@ export const Route = createFileRoute("/detect")({
 
 type Pred = { bbox: [number, number, number, number]; class: string; score: number };
 type Model = { detect: (el: HTMLVideoElement) => Promise<Pred[]> };
-type Track = { id: number; box: [number, number, number, number]; cls: string; miss: number };
+type Track = { id: number; box: [number, number, number, number]; cls: string; miss: number; score: number; speed: number };
 
 declare global { interface Window { cocoSsd?: { load: () => Promise<Model> } } }
 
@@ -63,6 +63,7 @@ function DetectPage() {
   const [error, setError] = useState("");
   const [count, setCount] = useState(0);
   const [demo, setDemo] = useState(false);
+  const [lastUpdate, setLastUpdate] = useState("Waiting for a source");
 
   useEffect(() => () => stopAll(), []);
 
@@ -140,11 +141,19 @@ function DetectPage() {
         const s = iou(t.box, p.bbox);
         if (s > bestScore) { bestScore = s; best = i; }
       });
-      if (best >= 0) { t.box = preds[best]!.bbox; t.miss = 0; used.add(best); } else t.miss++;
+      if (best >= 0) {
+        const next = preds[best];
+        if (!next) continue;
+        const oldX = t.box[0] + t.box[2] / 2, oldY = t.box[1] + t.box[3] / 2;
+        const newX = next.bbox[0] + next.bbox[2] / 2, newY = next.bbox[1] + next.bbox[3] / 2;
+        t.speed = Math.hypot(newX - oldX, newY - oldY); t.box = next.bbox; t.score = next.score; t.miss = 0; used.add(best);
+      } else t.miss++;
     }
-    preds.forEach((p, i) => { if (!used.has(i)) tracks.current.push({ id: nextId.current++, box: p.bbox, cls: p.class, miss: 0 }); });
+    preds.forEach((p, i) => { if (!used.has(i)) tracks.current.push({ id: nextId.current++, box: p.bbox, cls: p.class, miss: 0, score: p.score, speed: 0 }); });
     tracks.current = tracks.current.filter((t) => t.miss < 15);
-    setCount(tracks.current.filter((t) => t.miss === 0).length);
+    const visible = tracks.current.filter((t) => t.miss === 0);
+    setCount(visible.length);
+    setLastUpdate(visible.length ? `${visible.length} tracked · ${visible.filter((t) => t.speed > 8).length} moving` : "No recognised objects in view");
   }
 
   function draw() {
@@ -160,7 +169,7 @@ function DetectPage() {
       const [x, y, w, h] = t.box;
       ctx.strokeStyle = teal; ctx.fillStyle = teal;
       ctx.strokeRect(x, y, w, h);
-      const label = `#${t.id} ${t.cls}`;
+       const label = `#${t.id} ${t.cls} ${Math.round(t.score * 100)}%`;
       const tw = ctx.measureText(label).width + 10;
       ctx.fillRect(x, y - 24, tw, 24);
       ctx.fillStyle = "oklch(0.17 0.04 240)";
@@ -173,6 +182,23 @@ function DetectPage() {
     if (status === "running") { v.pause(); setStatus("paused"); }
     else if (status === "paused") { v.play(); setStatus("running"); }
   }
+
+  function describe() {
+    if (!("speechSynthesis" in window)) { setError("Spoken descriptions are not supported in this browser."); return; }
+    const visible = tracks.current.filter((t) => t.miss === 0);
+    const groups = [...new Set(visible.map((t) => t.cls))];
+    const movement = visible.filter((t) => t.speed > 8).length;
+    const sentence = visible.length
+      ? `I can see ${visible.length} tracked objects: ${groups.join(", ")}. ${movement ? `${movement} appear to be moving.` : "No strong movement is detected."}`
+      : "No recognised objects are currently visible.";
+    window.speechSynthesis.cancel(); window.speechSynthesis.speak(new SpeechSynthesisUtterance(sentence));
+  }
+
+  const visibleTracks = tracks.current.filter((t) => t.miss === 0);
+  const people = visibleTracks.filter((t) => t.cls === "person").length;
+  const vehicles = visibleTracks.filter((t) => ["car", "truck", "bus", "motorcycle", "bicycle"].includes(t.cls)).length;
+  const animals = visibleTracks.filter((t) => ["dog", "cat", "bird", "horse", "sheep", "cow"].includes(t.cls)).length;
+  const scene = vehicles ? "Road or parking area" : people ? "People-focused environment" : count ? "General environment" : "Awaiting scene data";
 
   // Synthetic demo animation (never touches the user's video)
   useEffect(() => {
@@ -207,12 +233,13 @@ function DetectPage() {
       <SiteHeader />
       <main className="mx-auto max-w-6xl px-4 py-10">
         <PageIntro
-          title="Object Detection & Tracking"
-          text="Runs the free COCO-SSD model (80 everyday object types) entirely on your device — nothing is uploaded. Tracking IDs follow objects frame-to-frame with simple overlap matching, so they can swap in crowded scenes."
+          title="Vision Intelligence"
+          text="Analyse a live camera or video for people, animals, vehicles and everyday objects. Detection runs on your device and your footage is never uploaded."
         />
-        <div className="grid gap-5 lg:grid-cols-[1fr_20rem]">
+        <div className="mb-4 flex flex-wrap items-center gap-2"><span className="badge-live"><span className="mr-1 h-1.5 w-1.5 rounded-full bg-primary-foreground" /> Vision model ready</span><span className="text-xs text-muted-foreground">COCO-SSD · 80 object types · local processing</span></div>
+        <div className="grid gap-5 lg:grid-cols-[1fr_21rem]">
           <section className="panel">
-            <div className="relative overflow-hidden rounded-xl bg-background">
+            <div className="scanner-grid relative overflow-hidden rounded-lg bg-background">
               <video ref={video} playsInline muted className="block aspect-video w-full object-contain" />
               <canvas ref={canvas} className="pointer-events-none absolute inset-0 h-full w-full object-contain" aria-hidden />
               {source === "none" && (
@@ -225,6 +252,8 @@ function DetectPage() {
                   <Loader2 className="h-5 w-5 animate-spin" /> Loading detection model (~10 MB, first time only)…
                 </div>
               )}
+              {status === "running" && <div className="scan-line pointer-events-none absolute inset-x-0 top-0 h-px bg-primary shadow-[0_0_14px_var(--primary)]" aria-hidden />}
+              <div className="pointer-events-none absolute left-3 top-3 flex items-center gap-2 rounded bg-background/80 px-2 py-1 text-xs text-foreground"><ScanLine className="h-3.5 w-3.5 text-primary" /> {status === "running" ? "ANALYSING" : "STANDBY"}</div>
             </div>
             <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
               {status === "running" && <span className="badge-live">Live detection</span>}
@@ -249,9 +278,20 @@ function DetectPage() {
               {status === "paused" ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />} {status === "paused" ? "Resume" : "Pause"}
             </button>
             <button className="btn-ghost w-full" onClick={reset} disabled={source === "none"}><Square className="h-4 w-4" /> Stop</button>
+            <button className="btn-ghost w-full" onClick={describe} disabled={status !== "running" && status !== "paused"}><Volume2 className="h-4 w-4" /> Describe scene</button>
             <p className="text-xs text-surface-foreground/65">Camera is only requested after you press “Start camera”. Your video never leaves this device.</p>
           </aside>
         </div>
+
+        <section className="mt-5 grid gap-px overflow-hidden rounded-lg border border-border bg-border sm:grid-cols-2 lg:grid-cols-4" aria-label="Vision analysis">
+          {[{ label: "Objects", value: count, note: lastUpdate }, { label: "People", value: people, note: people ? "Human presence detected" : "None detected" }, { label: "Vehicles", value: vehicles, note: animals ? `${animals} animal${animals === 1 ? "" : "s"} also seen` : "Cars, buses and bikes" }, { label: "Scene", value: scene, note: "Best-effort estimate" }].map((item) => <div key={item.label} className="bg-surface p-4 text-surface-foreground"><p className="field-label">{item.label}</p><p className="text-xl font-semibold">{item.value}</p><p className="mt-1 text-xs text-surface-foreground/55">{item.note}</p></div>)}
+        </section>
+
+        <section className="mt-5 grid gap-5 md:grid-cols-3">
+          <div className="panel"><Eye className="h-5 w-5 text-primary" /><h2 className="mt-3 text-lg">Activity signals</h2><p className="mt-2 text-sm text-surface-foreground/65">Movement speed supports basic motion alerts. Walking, sitting, waving and falling need a dedicated pose model and are not claimed here.</p></div>
+          <div className="panel"><ScanLine className="h-5 w-5 text-primary" /><h2 className="mt-3 text-lg">Environment</h2><p className="mt-2 text-sm text-surface-foreground/65">Scene type is estimated from detected objects. Weather cannot be reliably confirmed by this object model.</p></div>
+          <div className="panel"><Volume2 className="h-5 w-5 text-primary" /><h2 className="mt-3 text-lg">Voice assistant</h2><p className="mt-2 text-sm text-surface-foreground/65">Hear an instant summary of recognised objects, categories and visible movement.</p></div>
+        </section>
 
         <section className="mt-8">
           <button className="btn-ghost-dark" onClick={() => setDemo((d) => !d)}>{demo ? "Hide" : "Show"} demo preview</button>
@@ -263,6 +303,7 @@ function DetectPage() {
             </div>
           )}
         </section>
+        <div className="mt-8"><AiDisclaimer /></div>
       </main>
     </>
   );
