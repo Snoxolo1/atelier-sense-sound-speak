@@ -1,14 +1,14 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { Languages, Music2, ScanEye, ArrowRight } from "lucide-react";
-import { SiteHeader } from "@/components/SiteHeader";
+import { AiDisclaimer, SiteHeader } from "@/components/SiteHeader";
 
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Atelier AI — Translate, Compose, Detect" },
-      { name: "description", content: "Three browser-based AI tools: language translation, music loop generation and object detection." },
-      { property: "og:title", content: "Atelier AI — Translate, Compose, Detect" },
-      { property: "og:description", content: "Three browser-based AI tools in one elegant workspace." },
+      { title: "Beat Brains — Amapiano, Translate, Vision" },
+      { name: "description", content: "Create original Amapiano grooves, translate language and explore real-time computer vision." },
+      { property: "og:title", content: "Beat Brains — Amapiano, Translate, Vision" },
+      { property: "og:description", content: "Creative sound and computer vision tools in one focused workspace." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
     ],
@@ -18,8 +18,8 @@ export const Route = createFileRoute("/")({
 
 const tools = [
   { to: "/translate", icon: Languages, title: "Language Translation", text: "Translate text between dozens of languages, copy the result, and hear it read aloud.", tag: "Live free service" },
-  { to: "/music", icon: Music2, title: "Music Generation", text: "Shape Amapiano, R&B, jazz, Afrobeat or lo-fi loops by mood and tempo, then download.", tag: "Browser demo synth" },
-  { to: "/detect", icon: ScanEye, title: "Object Detection", text: "Spot and track people and objects in a video or your camera, right on your device.", tag: "On-device model" },
+  { to: "/music", icon: Music2, title: "Amapiano Studio", text: "Turn your story into a warm, deep Amapiano groove with log drums, jazz harmony and sing-along lyrics.", tag: "Original browser audio" },
+  { to: "/detect", icon: ScanEye, title: "Vision Intelligence", text: "Detect and track people, animals, vehicles and objects with live confidence and scene summaries.", tag: "On-device vision" },
 ] as const;
 
 function Index() {
@@ -27,12 +27,12 @@ function Index() {
     <>
       <SiteHeader />
       <main className="mx-auto max-w-6xl px-4 py-14">
-        <p className="text-sm font-semibold uppercase tracking-[0.2em] text-gold">A small studio of AI tools</p>
+        <p className="text-sm font-semibold uppercase tracking-[0.2em] text-gold">Sound meets intelligence</p>
         <h1 className="mt-3 max-w-3xl text-4xl sm:text-6xl text-foreground">
-          Translate, compose and see — <em className="text-primary">honestly</em>, in your browser.
+          Create the rhythm. Understand the world.
         </h1>
         <p className="mt-4 max-w-2xl text-lg text-muted-foreground">
-          No accounts, no stored data. Each tool tells you exactly what runs for real and what is a demo.
+          Build an Amapiano idea from your story, translate across languages, or analyse a live camera scene.
         </p>
         <div className="mt-12 grid gap-5 md:grid-cols-3">
           {tools.map((t) => (
@@ -49,6 +49,7 @@ function Index() {
             </Link>
           ))}
         </div>
+        <div className="mt-10"><AiDisclaimer /></div>
       </main>
     </>
   );

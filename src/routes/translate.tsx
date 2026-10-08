@@ -1,14 +1,14 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { ArrowLeftRight, Copy, Loader2, Volume2, Check } from "lucide-react";
-import { SiteHeader, PageIntro } from "@/components/SiteHeader";
+import { AiDisclaimer, SiteHeader, PageIntro } from "@/components/SiteHeader";
 
 export const Route = createFileRoute("/translate")({
   head: () => ({
     meta: [
-      { title: "Language Translation — Atelier AI" },
+      { title: "Language Translation — Beat Brains" },
       { name: "description", content: "Translate text, detect the source language, copy and listen to results." },
-      { property: "og:title", content: "Language Translation — Atelier AI" },
+      { property: "og:title", content: "Language Translation — Beat Brains" },
       { property: "og:description", content: "Translate text and hear it read aloud in your browser." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
@@ -171,6 +171,7 @@ function TranslatePage() {
             </div>
           </div>
         </div>
+        <div className="mt-8"><AiDisclaimer /></div>
       </main>
     </>
   );
