@@ -26,7 +26,7 @@ export async function renderLoop(opts: { genre: Genre; mood: Mood; bpm: number; 
   const ctx = new OfflineAudioContext(2, sr * opts.seconds, sr);
   const r = rng(opts.seed);
   const master = ctx.createGain();
-  master.gain.value = 0.7;
+  master.gain.value = 0.62;
   const lp = ctx.createBiquadFilter();
   lp.type = "lowpass";
   lp.frequency.value = opts.genre === "lofi" ? 3500 : 12000;
@@ -84,15 +84,17 @@ export async function renderLoop(opts: { genre: Genre; mood: Mood; bpm: number; 
     for (let s = 0; s < 16; s++) {
       const t = t0 + s * step16 + (s % 2 ? swing * step16 : 0);
       if (t >= opts.seconds) break;
-      if (kickSteps[opts.genre].includes(s)) tone(t, 120, 0.35, 0.9, "sine", 40);
+      if (kickSteps[opts.genre].includes(s)) tone(t, 125, 0.38, 0.82, "sine", 42);
       if (snareSteps[opts.genre].includes(s)) {
         if (opts.genre === "jazz") noise(t, 0.25, 0.12, 4000);
         else { noise(t, 0.18, 0.35, 1500); tone(t, 200, 0.08, 0.2, "triangle"); }
       }
       const hatDensity = opts.mood === "energetic" ? 1 : 2;
       if (s % hatDensity === 0) noise(t, 0.04, opts.genre === "jazz" ? 0.1 : 0.14 + (s % 4 === 2 ? 0.08 : 0), 7000);
-      if (opts.genre === "amapiano" && (s === 3 || s === 6 || s === 10 || (s === 14 && r() > 0.4))) {
-        tone(t, midi(deg(chordDeg, -1)) * 2, 0.45, 0.7, "sine", midi(deg(chordDeg, -1)) * 1.4); // log drum
+      if (opts.genre === "amapiano" && (s === 3 || s === 6 || s === 10 || s === 13 || (s === 15 && r() > 0.35))) {
+        const bass = midi(deg(chordDeg, -2)) * 2;
+        tone(t, bass * 2.8, 0.52, 0.74, "sine", bass); // deep pitched log drum
+        if (s === 6 || s === 13) tone(t + step16 * 0.35, bass * 1.6, 0.28, 0.34, "triangle", bass * 0.9);
       }
       if (opts.genre === "afrobeat" && [2, 3, 7, 11, 15].includes(s)) tone(t, 680, 0.05, 0.15, "square"); // cowbell-ish
       if (opts.genre === "jazz" && s % 4 === 0) tone(t, midi(deg(chordDeg + (s / 4) * 2, -1)), beat * 0.9, 0.35, "triangle"); // walking bass
@@ -102,12 +104,19 @@ export async function renderLoop(opts: { genre: Genre; mood: Mood; bpm: number; 
       [0, 1.5, 2.5].forEach((p) => tone(t0 + p * beat, midi(deg(chordDeg, -1)), beat * 0.8, 0.45, "triangle"));
     }
     // chords
-    const chord = [0, 2, 4, opts.genre === "jazz" || opts.genre === "rnb" || opts.genre === "lofi" ? 6 : 7].map((x) => deg(chordDeg + x, 1));
+    const chord = [0, 2, 4, opts.genre === "jazz" || opts.genre === "rnb" || opts.genre === "lofi" || opts.genre === "amapiano" ? 6 : 7].map((x) => deg(chordDeg + x, 1));
     const hits = opts.genre === "afrobeat" ? [0, 1.5, 2.5, 3.5] : opts.genre === "amapiano" ? [0, 1.75, 2.5] : [0];
     const len = hits.length > 1 ? beat * 0.4 : bar * 0.95;
-    for (const h of hits) for (const n of chord) if (t0 + h * beat < opts.seconds) tone(t0 + h * beat, midi(n), len, 0.06, opts.genre === "rnb" ? "sine" : "triangle");
+    for (const h of hits) for (const n of chord) if (t0 + h * beat < opts.seconds) {
+      tone(t0 + h * beat, midi(n), len, opts.genre === "amapiano" ? 0.075 : 0.06, opts.genre === "rnb" ? "sine" : "triangle");
+      if (opts.genre === "amapiano") tone(t0 + h * beat, midi(n) / 2, len * 0.85, 0.025, "sine");
+    }
     // melody sprinkle
     for (let m = 0; m < 4; m++) if (r() > 0.55) tone(t0 + m * beat + (r() > 0.5 ? beat / 2 : 0), midi(deg(Math.floor(r() * 7), 2)), beat * 0.6, 0.07, "sine");
+    if (opts.genre === "amapiano" && b % 4 === 3) {
+      [0, .5, 1, 1.5, 2, 2.5, 3, 3.5].forEach((p, i) => noise(t0 + p * beat, 0.05, 0.1 + i * 0.015, 5400));
+      [0, 2, 4, 6].forEach((d, i) => tone(t0 + (2 + i * .45) * beat, midi(deg(d, 2)), beat * .38, .065, "sine"));
+    }
   }
 
   return ctx.startRendering();
