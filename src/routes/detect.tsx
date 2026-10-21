@@ -303,16 +303,16 @@ function DetectPage() {
               <Upload className="h-4 w-4" /> Upload video
               <input type="file" accept="video/*" className="sr-only" onChange={(e) => onFile(e.target.files?.[0])} />
             </label>
-            <button className="btn-ghost w-full" onClick={startCamera}><Camera className="h-4 w-4" /> Start camera</button>
+            <Button className="btn-ghost w-full" onClick={startCamera}><Camera className="h-4 w-4" /> Start camera</Button>
             <h2 className="pt-2 text-xl">Processing</h2>
-            <button className="btn-primary w-full" onClick={start} disabled={source === "none" || status === "running" || status === "paused" || status === "loading-model"}>
+            <Button className="btn-primary w-full" onClick={start} disabled={source === "none" || status === "running" || status === "paused" || status === "loading-model"}>
               <Play className="h-4 w-4" /> Start detection
-            </button>
-            <button className="btn-ghost w-full" onClick={pause} disabled={status !== "running" && status !== "paused"}>
+            </Button>
+            <Button className="btn-ghost w-full" onClick={pause} disabled={status !== "running" && status !== "paused"}>
               {status === "paused" ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />} {status === "paused" ? "Resume" : "Pause"}
-            </button>
-            <button className="btn-ghost w-full" onClick={reset} disabled={source === "none"}><Square className="h-4 w-4" /> Stop</button>
-            <button className="btn-ghost w-full" onClick={describe} disabled={status !== "running" && status !== "paused"}><Volume2 className="h-4 w-4" /> Describe scene</button>
+            </Button>
+            <Button className="btn-ghost w-full" onClick={reset} disabled={source === "none"}><Square className="h-4 w-4" /> Stop</Button>
+            <Button className="btn-ghost w-full" onClick={describe} disabled={status !== "running" && status !== "paused"}><Volume2 className="h-4 w-4" /> Describe scene</Button>
             <p className="text-xs text-surface-foreground/65">Camera is only requested after you press “Start camera”. Your video never leaves this device.</p>
           </aside>
         </div>
@@ -329,7 +329,7 @@ function DetectPage() {
         <p className="mt-4 text-xs text-muted-foreground">Pose, facial expressions, clothing details and activity recognition are not available in this model. Scene estimates can be wrong.</p>
 
         <section className="mt-8">
-          <button className="btn-ghost-dark" onClick={() => setDemo((d) => !d)}>{demo ? "Hide" : "Show"} demo preview</button>
+          <Button className="btn-ghost-dark" onClick={() => setDemo((d) => !d)}>{demo ? "Hide" : "Show"} demo preview</Button>
           {demo && (
             <div className="panel mt-4">
               <div className="mb-3 flex items-center gap-2"><span className="badge-demo">Demo preview</span>
