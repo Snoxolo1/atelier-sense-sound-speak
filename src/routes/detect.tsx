@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { Camera, Eye, Loader2, Pause, Play, ScanLine, Square, Upload, Volume2 } from "lucide-react";
 import { AiDisclaimer, SiteHeader, PageIntro } from "@/components/SiteHeader";
+import { Button } from "@/components/ui/button";
 
 export const Route = createFileRoute("/detect")({
   head: () => ({
@@ -58,24 +59,31 @@ function DetectPage() {
   const raf = useRef(0);
   const tracks = useRef<Track[]>([]);
   const nextId = useRef(1);
+  const runId = useRef(0);
+  const fileUrl = useRef<string | null>(null);
   const [source, setSource] = useState<"none" | "file" | "camera">("none");
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState("");
   const [count, setCount] = useState(0);
   const [demo, setDemo] = useState(false);
   const [lastUpdate, setLastUpdate] = useState("Waiting for a source");
+  const [observations, setObservations] = useState<Track[]>([]);
+  const [environment, setEnvironment] = useState("Awaiting image");
 
   useEffect(() => () => stopAll(), []);
 
   function stopAll() {
+    runId.current++;
     cancelAnimationFrame(raf.current);
     stream.current?.getTracks().forEach((t) => t.stop());
     stream.current = null;
+    if (fileUrl.current) { URL.revokeObjectURL(fileUrl.current); fileUrl.current = null; }
   }
 
   function reset() {
     stopAll();
     tracks.current = []; nextId.current = 1; setCount(0);
+    setObservations([]); setEnvironment("Awaiting image"); setLastUpdate("Waiting for a source");
     const v = video.current;
     if (v) { v.pause(); v.srcObject = null; v.removeAttribute("src"); v.load(); }
     canvas.current?.getContext("2d")?.clearRect(0, 0, 9999, 9999);
@@ -85,8 +93,10 @@ function DetectPage() {
   function onFile(f: File | undefined) {
     if (!f) return;
     reset(); setError("");
-    const v = video.current!;
-    v.src = URL.createObjectURL(f);
+    const v = video.current;
+    if (!v) return;
+    fileUrl.current = URL.createObjectURL(f);
+    v.src = fileUrl.current;
     v.loop = true;
     setSource("file");
   }
@@ -100,8 +110,10 @@ function DetectPage() {
     try {
       const s = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
       stream.current = s;
-      video.current!.srcObject = s;
-      await video.current!.play();
+      const v = video.current;
+      if (!v) { s.getTracks().forEach((t) => t.stop()); return; }
+      v.srcObject = s;
+      await v.play();
       setSource("camera");
     } catch (e) {
       setError(e instanceof DOMException && e.name === "NotAllowedError"
@@ -111,6 +123,9 @@ function DetectPage() {
   }
 
   async function start() {
+    const v = video.current;
+    if (!v) return;
+    const activeRun = ++runId.current;
     setError(""); setStatus("loading-model");
     let model: Model;
     try { model = await getModel(); }
@@ -119,12 +134,15 @@ function DetectPage() {
       setError("The detection model couldn't be downloaded (offline or blocked). Try again later, or view the labeled demo preview below.");
       return;
     }
-    const v = video.current!;
-    await v.play().catch(() => {});
+    if (activeRun !== runId.current) return;
+    try { await v.play(); } catch { setStatus("error"); setError("This video could not be played. Try another video file."); return; }
     setStatus("running");
     const loop = async () => {
+      if (activeRun !== runId.current) return;
       if (v.paused || v.ended) { raf.current = requestAnimationFrame(loop); return; }
-      const preds = await model.detect(v);
+      let preds: Pred[];
+      try { preds = await model.detect(v); } catch { if (activeRun === runId.current) { setStatus("error"); setError("Analysis stopped. Try restarting detection."); } return; }
+      if (activeRun !== runId.current) return;
       updateTracks(preds.filter((p) => p.score > 0.5));
       draw();
       raf.current = requestAnimationFrame(loop);
@@ -152,14 +170,17 @@ function DetectPage() {
     preds.forEach((p, i) => { if (!used.has(i)) tracks.current.push({ id: nextId.current++, box: p.bbox, cls: p.class, miss: 0, score: p.score, speed: 0 }); });
     tracks.current = tracks.current.filter((t) => t.miss < 15);
     const visible = tracks.current.filter((t) => t.miss === 0);
+    setObservations(visible.map((t) => ({ ...t })));
     setCount(visible.length);
     setLastUpdate(visible.length ? `${visible.length} tracked · ${visible.filter((t) => t.speed > 8).length} moving` : "No recognised objects in view");
   }
 
   function draw() {
-    const v = video.current!, c = canvas.current!;
+    const v = video.current, c = canvas.current;
+    if (!v || !c) return;
     c.width = v.videoWidth; c.height = v.videoHeight;
-    const ctx = c.getContext("2d")!;
+    const ctx = c.getContext("2d");
+    if (!ctx) return;
     ctx.clearRect(0, 0, c.width, c.height);
     const teal = getComputedStyle(document.documentElement).getPropertyValue("--primary");
     ctx.lineWidth = Math.max(2, c.width / 320);
@@ -172,13 +193,24 @@ function DetectPage() {
        const label = `#${t.id} ${t.cls} ${Math.round(t.score * 100)}%`;
       const tw = ctx.measureText(label).width + 10;
       ctx.fillRect(x, y - 24, tw, 24);
-      ctx.fillStyle = "oklch(0.17 0.04 240)";
+      ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue("--primary-foreground");
       ctx.fillText(label, x + 5, y - 6);
+    }
+    const sample = document.createElement("canvas"); sample.width = 32; sample.height = 24;
+    const sampleCtx = sample.getContext("2d");
+    if (sampleCtx && v.videoWidth) {
+      sampleCtx.drawImage(v, 0, 0, 32, 24);
+      const pixels = sampleCtx.getImageData(0, 0, 32, 24).data;
+      let brightness = 0;
+      for (let i = 0; i < pixels.length; i += 4) brightness += (pixels[i] ?? 0) * .2126 + (pixels[i + 1] ?? 0) * .7152 + (pixels[i + 2] ?? 0) * .0722;
+      brightness /= 32 * 24;
+      setEnvironment(brightness > 150 ? "Bright / possible daylight" : brightness < 60 ? "Low light / possible night" : "Moderate light");
     }
   }
 
   function pause() {
-    const v = video.current!;
+    const v = video.current;
+    if (!v) return;
     if (status === "running") { v.pause(); setStatus("paused"); }
     else if (status === "paused") { v.play(); setStatus("running"); }
   }
@@ -194,7 +226,7 @@ function DetectPage() {
     window.speechSynthesis.cancel(); window.speechSynthesis.speak(new SpeechSynthesisUtterance(sentence));
   }
 
-  const visibleTracks = tracks.current.filter((t) => t.miss === 0);
+  const visibleTracks = observations;
   const people = visibleTracks.filter((t) => t.cls === "person").length;
   const vehicles = visibleTracks.filter((t) => ["car", "truck", "bus", "motorcycle", "bicycle"].includes(t.cls)).length;
   const animals = visibleTracks.filter((t) => ["dog", "cat", "bird", "horse", "sheep", "cow"].includes(t.cls)).length;
@@ -203,7 +235,9 @@ function DetectPage() {
   // Synthetic demo animation (never touches the user's video)
   useEffect(() => {
     if (!demo) return;
-    const c = demoCanvas.current!, ctx = c.getContext("2d")!;
+    const c = demoCanvas.current;
+    const ctx = c?.getContext("2d");
+    if (!c || !ctx) return;
     const css = getComputedStyle(document.documentElement);
     const objs = [
       { id: 1, cls: "person", x: 40, y: 80, w: 70, h: 150, vx: 1.2 },
@@ -236,7 +270,7 @@ function DetectPage() {
           title="Vision Intelligence"
           text="Analyse a live camera or video for people, animals, vehicles and everyday objects. Detection runs on your device and your footage is never uploaded."
         />
-        <div className="mb-4 flex flex-wrap items-center gap-2"><span className="badge-live"><span className="mr-1 h-1.5 w-1.5 rounded-full bg-primary-foreground" /> Vision model ready</span><span className="text-xs text-muted-foreground">COCO-SSD · 80 object types · local processing</span></div>
+        <div className="mb-4 flex flex-wrap items-center gap-2"><span className="badge-live">{status === "running" ? "Vision active" : "On-device vision"}</span><span className="text-xs text-muted-foreground">COCO-SSD · 80 object types · local processing</span></div>
         <div className="grid gap-5 lg:grid-cols-[1fr_21rem]">
           <section className="panel">
             <div className="scanner-grid relative overflow-hidden rounded-lg bg-background">
@@ -269,16 +303,16 @@ function DetectPage() {
               <Upload className="h-4 w-4" /> Upload video
               <input type="file" accept="video/*" className="sr-only" onChange={(e) => onFile(e.target.files?.[0])} />
             </label>
-            <button className="btn-ghost w-full" onClick={startCamera}><Camera className="h-4 w-4" /> Start camera</button>
+            <Button className="btn-ghost w-full" onClick={startCamera}><Camera className="h-4 w-4" /> Start camera</Button>
             <h2 className="pt-2 text-xl">Processing</h2>
-            <button className="btn-primary w-full" onClick={start} disabled={source === "none" || status === "running" || status === "paused" || status === "loading-model"}>
+            <Button className="btn-primary w-full" onClick={start} disabled={source === "none" || status === "running" || status === "paused" || status === "loading-model"}>
               <Play className="h-4 w-4" /> Start detection
-            </button>
-            <button className="btn-ghost w-full" onClick={pause} disabled={status !== "running" && status !== "paused"}>
+            </Button>
+            <Button className="btn-ghost w-full" onClick={pause} disabled={status !== "running" && status !== "paused"}>
               {status === "paused" ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />} {status === "paused" ? "Resume" : "Pause"}
-            </button>
-            <button className="btn-ghost w-full" onClick={reset} disabled={source === "none"}><Square className="h-4 w-4" /> Stop</button>
-            <button className="btn-ghost w-full" onClick={describe} disabled={status !== "running" && status !== "paused"}><Volume2 className="h-4 w-4" /> Describe scene</button>
+            </Button>
+            <Button className="btn-ghost w-full" onClick={reset} disabled={source === "none"}><Square className="h-4 w-4" /> Stop</Button>
+            <Button className="btn-ghost w-full" onClick={describe} disabled={status !== "running" && status !== "paused"}><Volume2 className="h-4 w-4" /> Describe scene</Button>
             <p className="text-xs text-surface-foreground/65">Camera is only requested after you press “Start camera”. Your video never leaves this device.</p>
           </aside>
         </div>
@@ -287,14 +321,15 @@ function DetectPage() {
           {[{ label: "Objects", value: count, note: lastUpdate }, { label: "People", value: people, note: people ? "Human presence detected" : "None detected" }, { label: "Vehicles", value: vehicles, note: animals ? `${animals} animal${animals === 1 ? "" : "s"} also seen` : "Cars, buses and bikes" }, { label: "Scene", value: scene, note: "Best-effort estimate" }].map((item) => <div key={item.label} className="bg-surface p-4 text-surface-foreground"><p className="field-label">{item.label}</p><p className="text-xl font-semibold">{item.value}</p><p className="mt-1 text-xs text-surface-foreground/55">{item.note}</p></div>)}
         </section>
 
-        <section className="mt-5 grid gap-5 md:grid-cols-3">
-          <div className="panel"><Eye className="h-5 w-5 text-primary" /><h2 className="mt-3 text-lg">Activity signals</h2><p className="mt-2 text-sm text-surface-foreground/65">Movement speed supports basic motion alerts. Walking, sitting, waving and falling need a dedicated pose model and are not claimed here.</p></div>
-          <div className="panel"><ScanLine className="h-5 w-5 text-primary" /><h2 className="mt-3 text-lg">Environment</h2><p className="mt-2 text-sm text-surface-foreground/65">Scene type is estimated from detected objects. Weather cannot be reliably confirmed by this object model.</p></div>
-          <div className="panel"><Volume2 className="h-5 w-5 text-primary" /><h2 className="mt-3 text-lg">Voice assistant</h2><p className="mt-2 text-sm text-surface-foreground/65">Hear an instant summary of recognised objects, categories and visible movement.</p></div>
+        <section className="mt-5 grid gap-6 border-y border-border py-6 md:grid-cols-3">
+          <div><Eye className="h-5 w-5 text-primary" /><h2 className="mt-3 text-lg">Motion alerts</h2><p className="mt-2 text-sm text-muted-foreground" role="status">{observations.some((t) => t.speed > 25) ? "Strong movement observed — check the camera view." : "No strong movement signal."}</p><p className="mt-2 text-xs text-muted-foreground">Image displacement only, not activity or fall recognition. Not a safety monitoring system.</p></div>
+          <div><ScanLine className="h-5 w-5 text-primary" /><h2 className="mt-3 text-lg">Environment estimate</h2><p className="mt-2 text-sm">{environment}</p><p className="mt-2 text-xs text-muted-foreground">Brightness is not weather detection. Rain, fog and cloud cover are unverified.</p></div>
+          <div><Volume2 className="h-5 w-5 text-primary" /><h2 className="mt-3 text-lg">Detected labels</h2><div className="mt-2 space-y-1">{observations.length ? observations.map((t) => <p key={t.id} className="flex justify-between text-sm"><span>#{t.id} {t.cls}</span><span className="text-primary">{Math.round(t.score * 100)}%</span></p>) : <p className="text-sm text-muted-foreground">No labels yet</p>}</div></div>
         </section>
+        <p className="mt-4 text-xs text-muted-foreground">Pose, facial expressions, clothing details and activity recognition are not available in this model. Scene estimates can be wrong.</p>
 
         <section className="mt-8">
-          <button className="btn-ghost-dark" onClick={() => setDemo((d) => !d)}>{demo ? "Hide" : "Show"} demo preview</button>
+          <Button className="btn-ghost-dark" onClick={() => setDemo((d) => !d)}>{demo ? "Hide" : "Show"} demo preview</Button>
           {demo && (
             <div className="panel mt-4">
               <div className="mb-3 flex items-center gap-2"><span className="badge-demo">Demo preview</span>
