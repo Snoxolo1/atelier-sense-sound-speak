@@ -3,6 +3,9 @@ import { useEffect, useRef, useState } from "react";
 import { Download, Loader2, Pause, Play, Sparkles, Volume2 } from "lucide-react";
 import { AiDisclaimer, PageIntro, SiteHeader } from "@/components/SiteHeader";
 import { hash, renderLoop, toWav, type Mood } from "@/lib/synth";
+import { Button } from "@/components/ui/button";
+import { AMAPIANO_TEMPO, clampAmapianoTempo } from "@/lib/music-direction";
+import studioImage from "@/assets/amapiano-studio.jpg";
 
 export const Route = createFileRoute("/music")({
   head: () => ({ meta: [
@@ -36,7 +39,7 @@ function lyricConcept(topic: string, mood: Mood) {
 
 function MusicPage() {
   const [mood, setMood] = useState<Mood>("moody");
-  const [bpm, setBpm] = useState(113);
+  const [bpm, setBpm] = useState<number>(AMAPIANO_TEMPO.default);
   const [seconds, setSeconds] = useState(30);
   const [topic, setTopic] = useState("");
   const [state, setState] = useState<State>({ kind: "empty" });
@@ -74,14 +77,15 @@ function MusicPage() {
             <p className="mt-1 text-right text-xs text-surface-foreground/55">{topic.length}/240</p>
           </div>
           <div><span className="field-label">Emotional direction</span><div className="grid grid-cols-2 gap-2" role="radiogroup">
-            {MOODS.map(([value, label, note]) => <button key={value} role="radio" aria-checked={mood === value} className={mood === value ? "btn-primary min-h-16 flex-col" : "btn-ghost min-h-16 flex-col"} onClick={() => setMood(value)}><span>{label}</span><span className="text-xs font-normal opacity-75">{note}</span></button>)}
+            {MOODS.map(([value, label, note]) => <Button key={value} role="radio" aria-checked={mood === value} variant={mood === value ? "default" : "outline"} className="min-h-16 flex-col whitespace-normal" onClick={() => setMood(value)}><span>{label}</span><span className="text-xs font-normal opacity-75">{note}</span></Button>)}
           </div></div>
-          <div><label htmlFor="bpm" className="field-label">Tempo — {bpm} BPM</label><input id="bpm" type="range" min={112} max={115} value={bpm} onChange={(e) => setBpm(+e.target.value)} className="w-full accent-primary" /><div className="flex justify-between text-xs text-surface-foreground/55"><span>112 · deep</span><span>115 · driving</span></div></div>
+          <div><label htmlFor="bpm" className="field-label">Tempo — {bpm} BPM</label><input id="bpm" type="range" min={AMAPIANO_TEMPO.min} max={AMAPIANO_TEMPO.max} value={bpm} onChange={(e) => setBpm(clampAmapianoTempo(+e.target.value))} className="w-full accent-primary" /><div className="flex justify-between text-xs text-surface-foreground/55"><span>112 · deep</span><span>115 · driving</span></div></div>
           <div><label htmlFor="duration" className="field-label">Length</label><select id="duration" className="field" value={seconds} onChange={(e) => setSeconds(+e.target.value)}><option value={15}>15-second sketch</option><option value={30}>30-second groove</option><option value={60}>60-second extended groove</option></select></div>
-          <button className="btn-gold w-full" onClick={generate} disabled={state.kind === "loading"}>{state.kind === "loading" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />} Create Amapiano track</button>
+          <Button className="btn-gold h-auto w-full whitespace-normal" onClick={generate} disabled={state.kind === "loading"}>{state.kind === "loading" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />} Create Amapiano track</Button>
         </section>
 
         <section className="panel flex min-h-[30rem] flex-col" aria-label="Track preview">
+          <img src={studioImage} alt="Piano and music console overlooking Johannesburg at night" width={1536} height={1024} className="mb-4 aspect-[3/1] w-full rounded-lg object-cover" />
           <div className="flex items-center justify-between"><div><p className="field-label">Now creating</p><h2 className="text-2xl">Midnight in Mzansi</h2></div><Volume2 className="h-6 w-6 text-primary" aria-hidden /></div>
           <div className="my-5 flex h-24 items-center justify-center gap-1 overflow-hidden rounded-lg bg-surface-muted px-4" aria-hidden>
             {[35,60,82,45,92,68,38,75,100,55,86,42,70,95,48,78,62,88,40,72,52,90,65,36].map((h, i) => <span key={i} className="w-1.5 rounded-full bg-primary" style={{ height: `${state.kind === "loading" ? Math.max(20, (h + Date.now()) % 100) : h}%` }} />)}
@@ -97,7 +101,7 @@ function MusicPage() {
               <a className="btn-ghost mt-4" href={state.url} download={state.name}><Download className="h-4 w-4" /> Download WAV</a>
             </>}
           </div>
-          <p className="mt-4 text-xs text-surface-foreground/60">Original browser-made instrumental. Lyrics are a writing concept; no studio vocal is synthesized.</p>
+          <p className="mt-4 text-xs text-surface-foreground/60">Procedural instrumental, not AI-generated music. Lyrics use a topic-based template; vocals are not synthesized. Have an isiZulu speaker check chants.</p>
         </section>
       </div>
       <div className="mt-8"><AiDisclaimer /></div>

@@ -1,4 +1,5 @@
 // Procedural (non-AI) instrumental loop renderer using the Web Audio API.
+import { clampAmapianoTempo } from "@/lib/music-direction";
 export type Genre = "amapiano" | "rnb" | "jazz" | "afrobeat" | "lofi";
 export type Mood = "chill" | "uplifting" | "moody" | "energetic";
 
@@ -30,11 +31,13 @@ export async function renderLoop(opts: { genre: Genre; mood: Mood; bpm: number; 
   const lp = ctx.createBiquadFilter();
   lp.type = "lowpass";
   lp.frequency.value = opts.genre === "lofi" ? 3500 : 12000;
-  master.connect(lp).connect(ctx.destination);
+  const limiter = ctx.createDynamicsCompressor();
+  limiter.threshold.value = -12; limiter.ratio.value = 12;
+  master.connect(lp).connect(limiter).connect(ctx.destination);
 
   const scale = opts.mood === "uplifting" || opts.mood === "energetic" ? MAJOR : MINOR;
   const root = 45 + Math.floor(r() * 7);
-  const beat = 60 / opts.bpm;
+  const beat = 60 / (opts.genre === "amapiano" ? clampAmapianoTempo(opts.bpm) : opts.bpm);
   const bar = beat * 4;
   const prog = PROGS[opts.genre];
   const noiseBuf = ctx.createBuffer(1, sr, sr);
@@ -42,6 +45,7 @@ export async function renderLoop(opts: { genre: Genre; mood: Mood; bpm: number; 
   for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
 
   const tone = (t: number, f: number, d: number, g: number, type: OscillatorType = "sine", glide?: number) => {
+    if (t >= opts.seconds) return;
     const o = ctx.createOscillator();
     const a = ctx.createGain();
     o.type = type;
@@ -55,6 +59,7 @@ export async function renderLoop(opts: { genre: Genre; mood: Mood; bpm: number; 
     o.stop(t + d + 0.05);
   };
   const noise = (t: number, d: number, g: number, hp: number) => {
+    if (t >= opts.seconds) return;
     const s = ctx.createBufferSource();
     s.buffer = noiseBuf;
     const f = ctx.createBiquadFilter();
@@ -67,7 +72,7 @@ export async function renderLoop(opts: { genre: Genre; mood: Mood; bpm: number; 
     s.start(t);
     s.stop(t + d);
   };
-  const deg = (d: number, oct = 0) => root + scale[((d % 7) + 7) % 7]! + 12 * (Math.floor(d / 7) + oct);
+  const deg = (d: number, oct = 0) => root + (scale[((d % 7) + 7) % 7] ?? 0) + 12 * (Math.floor(d / 7) + oct);
 
   const kickSteps: Record<Genre, number[]> = {
     amapiano: [0, 4, 8, 12], rnb: [0, 7, 10], jazz: [], afrobeat: [0, 6, 10], lofi: [0, 7, 10],
@@ -80,7 +85,7 @@ export async function renderLoop(opts: { genre: Genre; mood: Mood; bpm: number; 
 
   for (let b = 0; b * bar < opts.seconds; b++) {
     const t0 = b * bar;
-    const chordDeg = prog[b % prog.length]!;
+    const chordDeg = prog[b % prog.length] ?? 0;
     for (let s = 0; s < 16; s++) {
       const t = t0 + s * step16 + (s % 2 ? swing * step16 : 0);
       if (t >= opts.seconds) break;
@@ -133,7 +138,7 @@ export function toWav(buf: AudioBuffer): Blob {
   const data = [...Array(ch)].map((_, i) => buf.getChannelData(i));
   let o = 44;
   for (let i = 0; i < len; i++) for (let c = 0; c < ch; c++) {
-    const v = Math.max(-1, Math.min(1, data[c]![i]!));
+    const v = Math.max(-1, Math.min(1, data[c]?.[i] ?? 0));
     out.setInt16(o, v * 0x7fff, true);
     o += 2;
   }
