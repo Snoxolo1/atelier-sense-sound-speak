@@ -24,10 +24,13 @@ const PROGS: Record<Genre, number[]> = {
 
 export async function renderLoop(opts: { genre: Genre; mood: Mood; bpm: number; seconds: number; seed: number }) {
   const sr = 44100;
-  const ctx = new OfflineAudioContext(2, sr * opts.seconds, sr);
+  if (!Number.isFinite(opts.seconds) || opts.seconds <= 0) throw new Error("Track duration must be positive.");
+  const ctx = new OfflineAudioContext(2, Math.round(sr * opts.seconds), sr);
   const r = rng(opts.seed);
   const master = ctx.createGain();
   master.gain.value = 0.62;
+  master.gain.setValueAtTime(0.62, Math.max(0, opts.seconds - .06));
+  master.gain.linearRampToValueAtTime(0, opts.seconds);
   const lp = ctx.createBiquadFilter();
   lp.type = "lowpass";
   lp.frequency.value = opts.genre === "lofi" ? 3500 : 12000;

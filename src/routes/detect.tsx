@@ -103,19 +103,23 @@ function DetectPage() {
 
   async function startCamera() {
     reset(); setError("");
+    const cameraRun = runId.current;
     if (!navigator.mediaDevices?.getUserMedia) {
       setError("Camera access isn't available in this browser (it also requires a secure https page).");
       return;
     }
     try {
       const s = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
+      if (cameraRun !== runId.current) { s.getTracks().forEach((t) => t.stop()); return; }
       stream.current = s;
       const v = video.current;
       if (!v) { s.getTracks().forEach((t) => t.stop()); return; }
       v.srcObject = s;
       await v.play();
+      if (cameraRun !== runId.current) { s.getTracks().forEach((t) => t.stop()); return; }
       setSource("camera");
     } catch (e) {
+      if (cameraRun !== runId.current) return;
       setError(e instanceof DOMException && e.name === "NotAllowedError"
         ? "Camera permission was denied. Allow camera access in your browser settings and try again."
         : "Couldn't start the camera. Check that one is connected and not used by another app.");
@@ -130,12 +134,14 @@ function DetectPage() {
     let model: Model;
     try { model = await getModel(); }
     catch {
+      if (activeRun !== runId.current) return;
       setStatus("error");
       setError("The detection model couldn't be downloaded (offline or blocked). Try again later, or view the labeled demo preview below.");
       return;
     }
     if (activeRun !== runId.current) return;
     try { await v.play(); } catch { setStatus("error"); setError("This video could not be played. Try another video file."); return; }
+    if (activeRun !== runId.current) return;
     setStatus("running");
     const loop = async () => {
       if (activeRun !== runId.current) return;
