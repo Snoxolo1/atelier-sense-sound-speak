@@ -1,16 +1,17 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
-import { Camera, Eye, Loader2, Pause, Play, ScanLine, Square, Upload, Volume2 } from "lucide-react";
+import { Camera, Eye, Loader2, Mic, MicOff, Pause, Play, ScanLine, Square, Upload, Volume2 } from "lucide-react";
 import { AiDisclaimer, SiteHeader, PageIntro } from "@/components/SiteHeader";
 import { Button } from "@/components/ui/button";
+import { autoCorrelate, categorize, classifyVoice, personLabel, type VoiceEstimate } from "@/lib/vision";
 
 export const Route = createFileRoute("/detect")({
   head: () => ({
     meta: [
       { title: "Vision Intelligence — Beat Brains" },
-      { name: "description", content: "Analyse a camera or video with real-time object detection, tracking, counts and spoken scene summaries." },
+      { name: "description", content: "Analyse a camera or video in real time: people, animals, vehicles and objects with counts, tracking, voice estimates and spoken scene summaries." },
       { property: "og:title", content: "Vision Intelligence — Beat Brains" },
-      { property: "og:description", content: "On-device vision analysis with labels, confidence, tracking and spoken descriptions." },
+      { property: "og:description", content: "On-device vision analysis with humans, animals, vehicles, objects, tracking and spoken descriptions." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
     ],
@@ -61,6 +62,7 @@ function DetectPage() {
   const nextId = useRef(1);
   const runId = useRef(0);
   const fileUrl = useRef<string | null>(null);
+  const lastDetect = useRef(0);
   const [source, setSource] = useState<"none" | "file" | "camera">("none");
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState("");
@@ -70,7 +72,87 @@ function DetectPage() {
   const [observations, setObservations] = useState<Track[]>([]);
   const [environment, setEnvironment] = useState("Awaiting image");
 
+  // Voice analysis state
+  const voiceCtx = useRef<AudioContext | null>(null);
+  const analyser = useRef<AnalyserNode | null>(null);
+  const elementSource = useRef<MediaElementAudioSourceNode | null>(null);
+  const micStream = useRef<MediaStream | null>(null);
+  const voiceRun = useRef(0);
+  const voiceTimer = useRef(0);
+  const pitchHistory = useRef<number[]>([]);
+  const [voiceOn, setVoiceOn] = useState(false);
+  const [voiceError, setVoiceError] = useState("");
+  const [voice, setVoice] = useState<{ pitch: number; label: VoiceEstimate }>({ pitch: 0, label: "unclear" });
+
   useEffect(() => () => stopAll(), []);
+
+  function ensureAudio() {
+    voiceCtx.current ??= new AudioContext();
+    const ac = voiceCtx.current;
+    analyser.current ??= ac.createAnalyser();
+    analyser.current.fftSize = 2048;
+    return ac;
+  }
+
+  function stopVoice() {
+    voiceRun.current++;
+    if (voiceTimer.current) { clearTimeout(voiceTimer.current); voiceTimer.current = 0; }
+    micStream.current?.getTracks().forEach((t) => t.stop());
+    micStream.current = null;
+    elementSource.current?.disconnect();
+    if (video.current) video.current.muted = true;
+    pitchHistory.current = [];
+    setVoiceOn(false);
+    setVoice({ pitch: 0, label: "unclear" });
+  }
+
+  async function toggleVoice() {
+    if (voiceOn) { stopVoice(); return; }
+    setVoiceError("");
+    pitchHistory.current = [];
+    try {
+      const ac = ensureAudio();
+      await ac.resume();
+      if (source === "file" && video.current) {
+        let node = elementSource.current;
+        if (!node) { node = ac.createMediaElementSource(video.current); elementSource.current = node; }
+        node.connect(analyser.current!);
+        video.current.muted = false;
+      } else {
+        const s = await navigator.mediaDevices.getUserMedia({ audio: true });
+        micStream.current = s;
+        ac.createMediaStreamSource(s).connect(analyser.current!);
+      }
+      voiceRun.current++;
+      const run = voiceRun.current;
+      setVoiceOn(true);
+      setVoice({ pitch: 0, label: "unclear" });
+      readPitch(run);
+    } catch {
+      setVoiceError(source === "file"
+        ? "Couldn't analyse this video's audio. It may have no sound — or use the microphone option instead."
+        : "Voice analysis needs microphone access. Allow the microphone in your browser and try again.");
+    }
+  }
+
+  function readPitch(run: number) {
+    const an = analyser.current, ac = voiceCtx.current;
+    if (!an || !ac || run !== voiceRun.current) return;
+    const buf = new Float32Array(an.fftSize);
+    an.getFloatTimeDomainData(buf);
+    const p = autoCorrelate(buf, ac.sampleRate);
+    if (p > 70 && p < 350) {
+      pitchHistory.current.push(p);
+      if (pitchHistory.current.length > 24) pitchHistory.current.shift();
+    }
+    const hist = pitchHistory.current;
+    if (hist.length >= 5) {
+      const sorted = [...hist].sort((a, b) => a - b);
+      const median = sorted[Math.floor(sorted.length / 2)] ?? 0;
+      setVoice({ pitch: Math.round(median), label: classifyVoice(median) });
+    }
+    voiceTimer.current = window.setTimeout(() => readPitch(run), 120);
+  }
 
   function stopAll() {
     runId.current++;
@@ -78,6 +160,7 @@ function DetectPage() {
     stream.current?.getTracks().forEach((t) => t.stop());
     stream.current = null;
     if (fileUrl.current) { URL.revokeObjectURL(fileUrl.current); fileUrl.current = null; }
+    stopVoice();
   }
 
   function reset() {
@@ -143,13 +226,18 @@ function DetectPage() {
     try { await v.play(); } catch { setStatus("error"); setError("This video could not be played. Try another video file."); return; }
     if (activeRun !== runId.current) return;
     setStatus("running");
+    lastDetect.current = 0;
     const loop = async () => {
       if (activeRun !== runId.current) return;
       if (v.paused || v.ended) { raf.current = requestAnimationFrame(loop); return; }
-      let preds: Pred[];
-      try { preds = await model.detect(v); } catch { if (activeRun === runId.current) { setStatus("error"); setError("Analysis stopped. Try restarting detection."); } return; }
-      if (activeRun !== runId.current) return;
-      updateTracks(preds.filter((p) => p.score > 0.5));
+      const now = performance.now();
+      if (now - lastDetect.current >= 120) {
+        lastDetect.current = now;
+        let preds: Pred[];
+        try { preds = await model.detect(v); } catch { if (activeRun === runId.current) { setStatus("error"); setError("Analysis stopped. Try restarting detection."); } return; }
+        if (activeRun !== runId.current) return;
+        updateTracks(preds.filter((p) => p.score > 0.5));
+      }
       draw();
       raf.current = requestAnimationFrame(loop);
     };
@@ -178,7 +266,11 @@ function DetectPage() {
     const visible = tracks.current.filter((t) => t.miss === 0);
     setObservations(visible.map((t) => ({ ...t })));
     setCount(visible.length);
-    setLastUpdate(visible.length ? `${visible.length} tracked · ${visible.filter((t) => t.speed > 8).length} moving` : "No recognised objects in view");
+    const people = visible.filter((t) => t.cls === "person").length;
+    const moving = visible.filter((t) => t.speed > 8).length;
+    setLastUpdate(visible.length
+      ? `${visible.length} tracked · ${personLabel(people)} · ${moving} moving`
+      : "No recognised objects in view");
   }
 
   function draw() {
@@ -194,9 +286,14 @@ function DetectPage() {
     for (const t of tracks.current) {
       if (t.miss) continue;
       const [x, y, w, h] = t.box;
-      ctx.strokeStyle = teal; ctx.fillStyle = teal;
+      const cat = categorize(t.cls);
+      const color = cat === "human" ? teal
+        : cat === "animal" ? getComputedStyle(document.documentElement).getPropertyValue("--gold")
+        : cat === "vehicle" ? getComputedStyle(document.documentElement).getPropertyValue("--accent")
+        : getComputedStyle(document.documentElement).getPropertyValue("--muted-foreground");
+      ctx.strokeStyle = color; ctx.fillStyle = color;
       ctx.strokeRect(x, y, w, h);
-       const label = `#${t.id} ${t.cls} ${Math.round(t.score * 100)}%`;
+      const label = `#${t.id} ${t.cls} ${Math.round(t.score * 100)}%`;
       const tw = ctx.measureText(label).width + 10;
       ctx.fillRect(x, y - 24, tw, 24);
       ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue("--primary-foreground");
@@ -224,19 +321,29 @@ function DetectPage() {
   function describe() {
     if (!("speechSynthesis" in window)) { setError("Spoken descriptions are not supported in this browser."); return; }
     const visible = tracks.current.filter((t) => t.miss === 0);
-    const groups = [...new Set(visible.map((t) => t.cls))];
+    const humans = visible.filter((t) => t.cls === "person").length;
+    const animals = visible.filter((t) => categorize(t.cls) === "animal").length;
+    const vehicles = visible.filter((t) => categorize(t.cls) === "vehicle").length;
+    const objects = visible.length - humans - animals - vehicles;
+    const parts: string[] = [];
+    if (humans) parts.push(`${humans} ${humans === 1 ? "person" : "people"}`);
+    if (animals) parts.push(`${animals} animal${animals === 1 ? "" : "s"}`);
+    if (vehicles) parts.push(`${vehicles} vehicle${vehicles === 1 ? "" : "s"}`);
+    if (objects) parts.push(`${objects} other object${objects === 1 ? "" : "s"}`);
     const movement = visible.filter((t) => t.speed > 8).length;
     const sentence = visible.length
-      ? `I can see ${visible.length} tracked objects: ${groups.join(", ")}. ${movement ? `${movement} appear to be moving.` : "No strong movement is detected."}`
+      ? `I can see ${parts.join(", ")}. ${movement ? `${movement} appear to be moving.` : "No strong movement is detected."}`
       : "No recognised objects are currently visible.";
     window.speechSynthesis.cancel(); window.speechSynthesis.speak(new SpeechSynthesisUtterance(sentence));
   }
 
   const visibleTracks = observations;
   const people = visibleTracks.filter((t) => t.cls === "person").length;
-  const vehicles = visibleTracks.filter((t) => ["car", "truck", "bus", "motorcycle", "bicycle"].includes(t.cls)).length;
-  const animals = visibleTracks.filter((t) => ["dog", "cat", "bird", "horse", "sheep", "cow"].includes(t.cls)).length;
-  const scene = vehicles ? "Road or parking area" : people ? "People-focused environment" : count ? "General environment" : "Awaiting scene data";
+  const animals = visibleTracks.filter((t) => categorize(t.cls) === "animal").length;
+  const vehicles = visibleTracks.filter((t) => categorize(t.cls) === "vehicle").length;
+  const objects = visibleTracks.length - people - animals - vehicles;
+  const scene = vehicles ? "Road or parking area" : animals ? "Animal / outdoor space" : people ? "People-focused environment" : objects ? "General environment" : "Awaiting scene data";
+  const voiceText = !voiceOn ? "Not analysing" : voice.label === "unclear" ? "Unclear (estimate)" : voice.label === "male" ? "Male (estimate)" : "Female (estimate)";
 
   // Synthetic demo animation (never touches the user's video)
   useEffect(() => {
@@ -274,7 +381,7 @@ function DetectPage() {
       <main className="mx-auto max-w-6xl px-4 py-10">
         <PageIntro
           title="Vision Intelligence"
-          text="Analyse a live camera or video for people, animals, vehicles and everyday objects. Detection runs on your device and your footage is never uploaded."
+          text="Analyse a live camera or video in real time: people, animals, vehicles and everyday objects, with counts, tracking, an estimated voice check and spoken scene summaries. Everything runs on your device and your footage is never uploaded."
         />
         <div className="mb-4 flex flex-wrap items-center gap-2"><span className="badge-live">{status === "running" ? "Vision active" : "On-device vision"}</span><span className="text-xs text-muted-foreground">COCO-SSD · 80 object types · local processing</span></div>
         <div className="grid gap-5 lg:grid-cols-[1fr_21rem]">
@@ -298,6 +405,7 @@ function DetectPage() {
             <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
               {status === "running" && <span className="badge-live">Live detection</span>}
               {status === "paused" && <span className="badge-demo">Paused</span>}
+              {voiceOn && <span className="badge-live">Voice check on</span>}
               {(status === "running" || status === "paused") && <span>{count} object{count === 1 ? "" : "s"} in view</span>}
             </div>
             {error && <p className="note-error mt-3" role="alert">{error}</p>}
@@ -319,12 +427,27 @@ function DetectPage() {
             </Button>
             <Button className="btn-ghost w-full" onClick={reset} disabled={source === "none"}><Square className="h-4 w-4" /> Stop</Button>
             <Button className="btn-ghost w-full" onClick={describe} disabled={status !== "running" && status !== "paused"}><Volume2 className="h-4 w-4" /> Describe scene</Button>
-            <p className="text-xs text-surface-foreground/65">Camera is only requested after you press “Start camera”. Your video never leaves this device.</p>
+            <h2 className="pt-2 text-xl">Voice check</h2>
+            <Button className="btn-ghost w-full" onClick={toggleVoice}>
+              {voiceOn ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />} {voiceOn ? "Stop voice check" : "Analyse voice"}
+            </Button>
+            <p className="text-sm" role="status">
+              {voiceText}{voiceOn && voice.pitch ? ` · ${voice.pitch} Hz` : voiceOn ? " · listening…" : ""}
+            </p>
+            {voiceError && <p className="note-error" role="alert">{voiceError}</p>}
+            <p className="text-xs text-surface-foreground/65">Uses your video's sound or the microphone. It's a best-effort pitch estimate of male or female — not a guaranteed answer, and it can be wrong. Voice is never recorded or uploaded.</p>
+            <p className="text-xs text-surface-foreground/65">Camera is only requested after you press "Start camera". Your video never leaves this device.</p>
           </aside>
         </div>
 
-        <section className="mt-5 grid gap-px overflow-hidden rounded-lg border border-border bg-border sm:grid-cols-2 lg:grid-cols-4" aria-label="Vision analysis">
-          {[{ label: "Objects", value: count, note: lastUpdate }, { label: "People", value: people, note: people ? "Human presence detected" : "None detected" }, { label: "Vehicles", value: vehicles, note: animals ? `${animals} animal${animals === 1 ? "" : "s"} also seen` : "Cars, buses and bikes" }, { label: "Scene", value: scene, note: "Best-effort estimate" }].map((item) => <div key={item.label} className="bg-surface p-4 text-surface-foreground"><p className="field-label">{item.label}</p><p className="text-xl font-semibold">{item.value}</p><p className="mt-1 text-xs text-surface-foreground/55">{item.note}</p></div>)}
+        <section className="mt-5 grid gap-px overflow-hidden rounded-lg border border-border bg-border sm:grid-cols-2 lg:grid-cols-5" aria-label="Vision analysis">
+          {[
+            { label: "Humans", value: people, note: people ? personLabel(people) : "None detected" },
+            { label: "Animals", value: animals, note: animals ? "Dogs, cats, birds and more" : "None detected" },
+            { label: "Vehicles", value: vehicles, note: vehicles ? "Cars, buses and bikes" : "None detected" },
+            { label: "Objects", value: objects, note: objects ? "Everything not human, animal or vehicle" : "None detected" },
+            { label: "Voice", value: voiceText, note: voiceOn && voice.pitch ? `${voice.pitch} Hz median pitch` : voiceOn ? "Listening for a voice…" : "Best-effort pitch estimate" },
+          ].map((item) => <div key={item.label} className="bg-surface p-4 text-surface-foreground"><p className="field-label">{item.label}</p><p className="text-xl font-semibold">{item.value}</p><p className="mt-1 text-xs text-surface-foreground/55">{item.note}</p></div>)}
         </section>
 
         <section className="mt-5 grid gap-6 border-y border-border py-6 md:grid-cols-3">
@@ -332,7 +455,7 @@ function DetectPage() {
           <div><ScanLine className="h-5 w-5 text-primary" /><h2 className="mt-3 text-lg">Environment estimate</h2><p className="mt-2 text-sm">{environment}</p><p className="mt-2 text-xs text-muted-foreground">Brightness is not weather detection. Rain, fog and cloud cover are unverified.</p></div>
           <div><Volume2 className="h-5 w-5 text-primary" /><h2 className="mt-3 text-lg">Detected labels</h2><div className="mt-2 space-y-1">{observations.length ? observations.map((t) => <p key={t.id} className="flex justify-between text-sm"><span>#{t.id} {t.cls}</span><span className="text-primary">{Math.round(t.score * 100)}%</span></p>) : <p className="text-sm text-muted-foreground">No labels yet</p>}</div></div>
         </section>
-        <p className="mt-4 text-xs text-muted-foreground">Pose, facial expressions, clothing details and activity recognition are not available in this model. Scene estimates can be wrong.</p>
+        <p className="mt-4 text-xs text-muted-foreground">Scene, activity, weather and voice estimates are best-effort and can be wrong. Pose, facial expressions and clothing details are not available in this model.</p>
 
         <section className="mt-8">
           <Button className="btn-ghost-dark" onClick={() => setDemo((d) => !d)}>{demo ? "Hide" : "Show"} demo preview</Button>
