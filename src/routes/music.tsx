@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
-import { Download, Layers, Loader2, Pause, Play, Sparkles, Volume2, Waves } from "lucide-react";
+import { Download, Layers as LayersIcon, Loader2, Pause, Play, Sparkles, Volume2, Waves } from "lucide-react";
 import { AiDisclaimer, PageIntro, SiteHeader } from "@/components/SiteHeader";
 import { hash, renderLoop, toWav, type Layers, type Mood, type Sections, type SoundChoice } from "@/lib/synth";
 import { Button } from "@/components/ui/button";
@@ -97,7 +97,7 @@ function MusicPage() {
               {SOUND_OPTIONS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
             </select>
           </div>
-          <div><span className="field-label"><Layers className="mr-1 inline h-4 w-4" aria-hidden /> Layers</span>
+          <div><span className="field-label"><LayersIcon className="mr-1 inline h-4 w-4" aria-hidden /> Layers</span>
             <div className="flex flex-wrap gap-2">{LAYER_OPTIONS.map(([key, label]) => <Button key={key} aria-pressed={layers[key]} variant={layers[key] ? "default" : "outline"} className="h-9" onClick={() => toggleLayer(key)}>{label}{layers[key] ? " on" : " off"}</Button>)}</div>
           </div>
           <div><span className="field-label"><Waves className="mr-1 inline h-4 w-4" aria-hidden /> Arrangement</span>
